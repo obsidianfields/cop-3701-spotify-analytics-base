@@ -9,5 +9,7 @@ Songs, artists, and genres are tracked separately from user metrics for the purp
 This database for the sake of more detailed inferences between stream count and other attributes, also includes things like song duration, dates of last login for users, and subscription tiers for analyzing the relationship between user preferences outside of just song genre.
 
 It should be noted that the data source does not account for individuals' streaming metrics. Fictional metrics will be generated so as to demonstrate the functions of the database. This also means that any username and e-mail is entirely fictitious and any connections to real people are purely coincidental.
+
+[ER Design](https://github.com/obsidianfields/cop-3701-spotify-analytics-base/blob/24d25a25e3c2ab7340ade08d1b0802dd5166c804/database_er.md)
 # Data Sources:
 https://www.kaggle.com/datasets/zaheenhamidani/ultimate-spotify-tracks-db
