@@ -7,5 +7,7 @@ These users also possess subscriptions, which cannot exist without an associated
 Songs, artists, and genres are tracked separately from user metrics for the purposes of clearly defining performance and rankings between artists and genres. Genres are dependent on songs, and a many-to-many relationship exists between artists and songs too for the purposes of tracking artist roles.
 
 This database for the sake of more detailed inferences between stream count and other attributes, also includes things like song duration, dates of last login for users, and subscription tiers for analyzing the relationship between user preferences outside of just song genre.
+
+It should be noted that the data source does not account for individuals' streaming metrics. Fictional metrics will be generated so as to demonstrate the functions of the database. This also means that any username and e-mail is entirely fictitious and any connections to real people are purely coincidental.
 # Data Sources:
 https://www.kaggle.com/datasets/zaheenhamidani/ultimate-spotify-tracks-db
