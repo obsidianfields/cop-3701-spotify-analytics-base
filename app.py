@@ -36,24 +36,23 @@ query1 = (
 query2 = "select count(artist_name) from artist where artist_name like :user_input;"
 query3 = """
 select 
-    s.artist_id, 
+    art.artist_name, 
     sum(ush.stream_count) as total_streams
-from 
-    user_streaming_history ush
-join 
-    song s on ush.song_id = s.song_id
-where 
-    s.artist_id like :user_input
-group by 
-    s.artist_id;
+from user_streaming_history ush
+join song s on ush.song_id = s.song_id
+join artist art on s.artist_id = art.artist_id 
+where art.artist_name like :user_input
+group by art.artist_id, art.artist_name;
 """
 query4 = "select count(genre_name) from song where genre_name like :user_input;"
 query5 = """
-select u.user_name, u.last_listened_date from users u
-join account_status a
-using (song_id)
+select 
+    u.user_name, 
+    a.last_login
+from users u
+join account_status a using (user_id)
 where u.user_name like :user_input
-and last_listened_date > "2024-01-01";
+and a.last_login > '2026-01-01';
 """
 
 # Query Menu Selection
@@ -118,16 +117,17 @@ elif choice == "Query4":
             st.error(f"Query failed: {e}")
 elif choice == "Query5":
     st.subheader("Shows if someone subscription access is 'active'")
+    st.write("A user is 'active' if they last logged in before 2026")
     st.write("insert username:")
     username = st.text_input("Username: ")
 
     if st.button("Run Query"):
         try:
             df = conn.query(query5, params={"user_input": f"%{username}%"})
-            if df.empty:
+            if not df.empty:
                 st.dataframe(df, use_container_width=True)
             else:
-                st.warning("Could not find User!")
+                st.warning("User not active")
         except Exception as e:
             print("could not execute sql query!")
             print(e)
