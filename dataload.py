@@ -1,82 +1,109 @@
-import csv
+import pandas as pd
 import mysql.connector
 from mysql.connector import Error
 
-
-
-DB_CONFIG = {
-    'host': 'db.freesql.com',
-    'user': 'username',
-    'password': 'password',
-    'database': 'database_name',
-    'port': 3306 # Default MySQL port
+# Database configuration
+db_config = {
+    'host': 'localhost',
+    'user': 'danirojas',
+    'password': 'Dany12321!',
+    'database': 'jorgebase'
 }
 
-def load_data_from_csv(connection, table_name, csv_file_path, insert_query):
-    """Reads a CSV and batch inserts the data into the remote database."""
-    print(f"Preparing to load data into {table_name} from {csv_file_path}...")
-
+def load_data(file_path):
+    conn = None
     try:
-        with open(csv_file_path, mode='r', encoding='utf-8') as file:
-            reader = csv.reader(file)
-            headers = next(reader) # Skip header row
+        # 1. LOAD DATA WITH SCHEMA FLEXIBILITY
+        print(f"Reading {file_path}...")
+        
+        # We explicitly name columns to handle the shift at line 231718
+        # and use 'on_bad_lines' to skip rows that are completely mangled.
+        df = pd.read_csv(
+            file_path, 
+            on_bad_lines='warn', 
+            engine='python',
+            encoding='utf-8'
+        )
+        
+        # Replace NaN with None (NULL in MySQL)
+        df = df.where(pd.notnull(df), None)
 
-            data_to_insert = []
-            for row in reader:
-                # Convert empty strings to None so they become NULL in the database
-                cleaned_row = tuple(None if val == '' else val for val in row)
-                data_to_insert.append(cleaned_row)
+        # 2. CONNECT TO MARIADB
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+        print("Connected to MariaDB.")
 
+        # --- 3. LOAD GENRE ---
+        print("Processing Genres...")
+        # Ensure genre is a string and handle potential None values
+        unique_genres = df['genre'].dropna().unique()
+        genre_data = [(str(g),) for g in unique_genres]
+        cursor.executemany("INSERT IGNORE INTO Genre (Genre_Name) VALUES (%s)", genre_data)
 
-            cursor = connection.cursor()
+        # --- 4. LOAD ARTIST ---
+        print("Processing Artists...")
+        # Grouping by artist to find their max popularity rank
+        artist_df = df[['artist_name', 'popularity']].groupby('artist_name').max().reset_index()
+        artist_df['artist_id'] = range(1, len(artist_df) + 1)
+        
+        # Dictionary for fast lookup when loading Songs
+        artist_map = dict(zip(artist_df['artist_name'], artist_df['artist_id']))
+        
+        artist_data = []
+        for _, row in artist_df.iterrows():
+            artist_data.append((
+                row['artist_id'], 
+                str(row['artist_name'])[:255], 
+                None, 
+                int(row['popularity']) if row['popularity'] is not None else 0
+            ))
+        
+        cursor.executemany("""
+            INSERT IGNORE INTO Artist (Artist_ID, Artist_Name, Middle_Name, Popularity_Rank) 
+            VALUES (%s, %s, %s, %s)
+        """, artist_data)
 
-            cursor.executemany(insert_query, data_to_insert)
-            connection.commit()
+        # --- 5. LOAD SONG ---
+        print("Processing Songs...")
+        unique_songs = df.drop_duplicates(subset=['track_id']).copy()
+        unique_songs['song_int_id'] = range(1, len(unique_songs) + 1)
+        
+        song_data = []
+        for _, row in unique_songs.iterrows():
+            # Get the Foreign Key (Artist_ID)
+            a_id = artist_map.get(row['artist_name'])
+            
+            # SAFE STRING HANDLING: Prevents 'float not subscriptable' error
+            track_name = str(row['track_name']) if row['track_name'] is not None else "Unknown"
+            
+            # (Song_ID, Song_Title, Song_Duration, Total_Streams, Artist_ID, Genre_Name)
+            song_data.append((
+                row['song_int_id'], 
+                track_name[:200], # Trim to VARCHAR(200)
+                int(row['duration_ms']) if row['duration_ms'] is not None else 0, 
+                0, # Initial count
+                a_id, 
+                row['genre']
+            ))
 
-            print(f"   -> Successfully inserted {cursor.rowcount} rows into {table_name}.")
-            cursor.close()
+        cursor.executemany("""
+            INSERT IGNORE INTO Song (Song_ID, Song_Title, Song_Duration, Total_Streams, Artist_ID, Genre_Name) 
+            VALUES (%s, %s, %s, %s, %s, %s)
+        """, song_data)
 
-    except FileNotFoundError:
-        print(f"   -> ERROR: File {csv_file_path} not found. Skipping.")
+        # 6. COMMIT CHANGES
+        conn.commit()
+        print(f"Success! Loaded {cursor.rowcount} rows into the Song table.")
+
     except Error as e:
-        print(f"   -> DATABASE ERROR inserting into {table_name}: {e}")
-        connection.rollback() # Rollback on error to maintain data integrity
-
-def main():
-    connection = None
-    try:
-        print("Connecting to remote database...")
-        connection = mysql.connector.connect(**DB_CONFIG)
-
-        if connection.is_connected():
-            db_info = connection.get_server_info()
-            print(f"Successfully connected to MySQL Server version {db_info}")
-
-            # 2. Define INSERT queries
-            # Ensure the order of %s matches the columns in files
-            queries = {
-                'Users': "INSERT INTO Users (User_ID, Email_Address, User_Name) VALUES (%s, %s, %s)",
-
-                'Song': "INSERT INTO Song (Song_ID, Song_Title, Song_Duration, Total_Streams, Artist_ID, Genre_Name) VALUES (%s, %s, %s, %s, %s, %s)",
-
-                'User_Streaming_History': "INSERT INTO User_Streaming_History (User_ID, Song_ID, Stream_Count, Last_Listened_Date) VALUES (%s, %s, %s, %s)"
-            }
-
-            # 3. Execute the loads in the correct order to respect Foreign Key constraints
-
-            load_data_from_csv(connection, 'Users', 'data/users.csv', queries['Users'])
-
-            load_data_from_csv(connection, 'Song', 'data/songs.csv', queries['Song'])
-
-            load_data_from_csv(connection, 'User_Streaming_History', 'data/user_streaming_history.csv', queries['User_Streaming_History'])
-
-    except Error as e:
-        print(f"Error connecting to MySQL: {e}")
+        print(f"Database Error: {e}")
+    except Exception as e:
+        print(f"Python Logic Error: {e}")
     finally:
-        # 4. Clean up the connection
-        if connection and connection.is_connected():
-            connection.close()
-            print("Database connection closed.")
+        if conn and conn.is_connected():
+            cursor.close()
+            conn.close()
+            print("Connection closed.")
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    load_data('SpotifyFeatures.csv')
